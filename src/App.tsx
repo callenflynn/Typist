@@ -1,10 +1,8 @@
 import { readTextFile, writeTextFile } from "@tauri-apps/plugin-fs";
-import { Bell, FilePlus2, Minus, Moon, Square, Sun, X } from "lucide-react";
-import { invoke } from "@tauri-apps/api/core";
+import { Bell, Minus, Moon, Square, Sun, X } from "lucide-react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useEffect, useRef, useState } from "react";
 import { Sidebar } from "./components/Sidebar";
-import { FirstLaunchIntro } from "./components/FirstLaunchIntro";
 import { MarkdownEditor } from "./components/Editor";
 import { hasNewerCommit, releasesUrl } from "./utils/updateChecker";
 import typistLogo from "../assets/typist.png";
@@ -23,7 +21,6 @@ export default function App() {
   const [isDirty, setIsDirty] = useState(false);
   const [updateAvailable, setUpdateAvailable] = useState(false);
   const [isMaximized, setIsMaximized] = useState(false);
-  const [introDismissed, setIntroDismissed] = useState(() => localStorage.getItem("typist-intro-dismissed") === "true");
   const [focusMode, setFocusMode] = useState(false);
   const [saveState, setSaveState] = useState<"saved" | "saving" | "error">("saved");
   const saveTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
@@ -70,13 +67,6 @@ export default function App() {
     }
   };
 
-  const openFile = () => {
-    if (!isTauri()) return;
-    invoke<string | null>("choose_markdown_file")
-      .then((path) => path && setSelectedFile(path))
-      .catch(() => setSaveState("error"));
-  };
-
   const handleChange = (next: string) => {
     setContent(next);
     if (!selectedFile || !isTauri()) return;
@@ -93,7 +83,6 @@ export default function App() {
       if (!(event.metaKey || event.ctrlKey)) return;
       const key = event.key.toLowerCase();
       if (key === "s") { event.preventDefault(); void saveNow(); }
-      if (key === "o") { event.preventDefault(); openFile(); }
       if (event.shiftKey && key === "f") { event.preventDefault(); setFocusMode((value) => !value); }
     };
     window.addEventListener("keydown", handleShortcut);
@@ -108,7 +97,6 @@ export default function App() {
       <header data-tauri-drag-region className="flex h-12 shrink-0 items-center justify-between border-b border-[var(--border)] px-4 pl-20">
         <div className="pointer-events-none flex items-center gap-2 text-sm font-semibold tracking-[-0.02em]"><img src={typistLogo} alt="Typist logo" className="h-6 w-6 rounded-md object-contain" />Typist <span className="text-xs font-normal text-[var(--text-muted)]">{appVersion}</span></div>
         <div className="flex items-center gap-1">
-          <button aria-label="Open Markdown file" title="Open file (Ctrl/Cmd+O)" onClick={openFile} className="rounded-lg p-2 text-[var(--text-muted)] hover:bg-black/5 dark:hover:bg-white/10"><FilePlus2 size={16} /></button>
           {updateAvailable && <a href={releasesUrl} target="_blank" rel="noreferrer" aria-label="Update available" className="rounded-lg p-2 text-[var(--accent)] hover:bg-black/5 dark:hover:bg-white/10"><Bell size={16} /></a>}
           <button aria-label={dark ? "Use light theme" : "Use dark theme"} onClick={() => setDark((value) => !value)} className="rounded-lg p-2 text-[var(--text-muted)] hover:bg-black/5 dark:hover:bg-white/10">{dark ? <Sun size={16} /> : <Moon size={16} />}</button>
           {windowControls && <div className="ml-2 flex items-center" data-tauri-drag-region="false"><button aria-label="Minimize window" onClick={() => void windowControls.minimize()} className="p-2 text-[var(--text-muted)] hover:bg-black/5 dark:hover:bg-white/10"><Minus size={15} /></button><button aria-label={isMaximized ? "Restore window" : "Maximize window"} onClick={() => { void windowControls.toggleMaximize(); setIsMaximized((value) => !value); }} className="p-2 text-[var(--text-muted)] hover:bg-black/5 dark:hover:bg-white/10">{isMaximized ? <span className="text-xs">▣</span> : <Square size={12} />}</button><button aria-label="Close window" onClick={() => void windowControls.close()} className="p-2 text-[var(--text-muted)] hover:bg-red-500 hover:text-white"><X size={15} /></button></div>}
@@ -122,7 +110,6 @@ export default function App() {
           <footer className="flex h-8 shrink-0 items-center justify-between border-t border-[var(--border)] px-6 text-[11px] text-[var(--text-muted)]"><span>{wordCount.toLocaleString()} {wordCount === 1 ? "word" : "words"}</span><span aria-live="polite">{saveState === "saving" ? "Saving…" : saveState === "error" ? "Could not save" : selectedFile ? "Saved locally" : "Local draft"}</span></footer>
         </section>
       </div>
-      {!introDismissed && <FirstLaunchIntro onDismiss={() => { localStorage.setItem("typist-intro-dismissed", "true"); setIntroDismissed(true); }} />}
     </main>
   );
 }

@@ -17,6 +17,45 @@ pub struct WindowSnapshot {
 #[derive(Default)]
 pub struct WorkspaceState(pub Mutex<Option<PathBuf>>);
 
+#[derive(Serialize)]
+pub struct WorkspaceInfo {
+    pub root: String,
+    pub welcome: String,
+}
+
+const WELCOME_MARKDOWN: &str = r#"# Welcome to Typist
+
+Typist is a quiet, local-first Markdown editor. Your files live in:
+
+`Documents/Typist`
+
+## A few basics
+
+- Choose a Markdown file from the left sidebar to open it.
+- Type normally; Markdown formatting appears as you write.
+- Files save automatically, or use **Ctrl/Cmd+S** to save immediately.
+- Use **Ctrl/Cmd+Shift+F** for a distraction-free focus mode.
+- Use the sun/moon button to switch between light and dark themes.
+
+Everything stays on your computer. Add, rename, and organize Markdown files in
+your Typist folder with your normal file manager.
+"#;
+
+#[tauri::command]
+pub async fn initialize_workspace(app: AppHandle, state: State<'_, WorkspaceState>) -> Result<WorkspaceInfo, String> {
+    let documents = app.path().resolve("Documents", BaseDirectory::Home).map_err(|error| error.to_string())?;
+    let root = documents.join("Typist");
+    fs::create_dir_all(&root).map_err(|error| error.to_string())?;
+    let welcome = root.join("Welcome.md");
+    if !welcome.exists() {
+        fs::write(&welcome, WELCOME_MARKDOWN).map_err(|error| error.to_string())?;
+    }
+    let root = canonical_workspace(&root)?;
+    let welcome = root.join("Welcome.md");
+    *state.0.lock().await = Some(root.clone());
+    Ok(WorkspaceInfo { root: root.to_string_lossy().into_owned(), welcome: welcome.to_string_lossy().into_owned() })
+}
+
 fn canonical_workspace(root: &Path) -> Result<PathBuf, String> {
     root.canonicalize().map_err(|error| format!("invalid workspace: {error}"))
 }

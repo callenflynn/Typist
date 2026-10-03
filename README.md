@@ -1,6 +1,16 @@
 # Typist
 
-A small, local-first Markdown editor and daily journal.
+A small, local-first Markdown editor with a quiet, Typora-inspired writing surface.
+
+On first launch, Typist creates one folder in the user's Documents directory:
+
+```text
+Documents/Typist/Welcome.md
+```
+
+`Welcome.md` opens automatically with the basic instructions. There is no vault
+setup or account to configure; add and organize Markdown files directly in the
+Typist folder.
 
 ## Linux quick start
 
@@ -41,9 +51,9 @@ The launcher works from `wofi`, `rofi-wayland`, or any `.desktop`-aware menu:
 bind = $mod, T, exec, typist
 ```
 
-Use `Ctrl/Cmd+Shift+F` for a distraction-free focus mode, `Ctrl/Cmd+O` to open a
-Markdown file, and `Ctrl/Cmd+S` to flush the current file immediately. Files remain
-local and are also saved automatically after a short pause while typing.
+Use `Ctrl/Cmd+Shift+F` for a distraction-free focus mode and `Ctrl/Cmd+S` to flush
+the current file immediately. Files remain local and are also saved automatically
+after a short pause while typing.
 
 ## Development notes
 
