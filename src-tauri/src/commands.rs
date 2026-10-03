@@ -47,7 +47,8 @@ pub async fn initialize_workspace(app: AppHandle, state: State<'_, WorkspaceStat
     let root = documents.join("Typist");
     fs::create_dir_all(&root).map_err(|error| error.to_string())?;
     let welcome = root.join("Welcome.md");
-    if !welcome.exists() {
+    let welcome_is_empty = fs::metadata(&welcome).map(|metadata| metadata.len() == 0).unwrap_or(true);
+    if welcome_is_empty {
         fs::write(&welcome, WELCOME_MARKDOWN).map_err(|error| error.to_string())?;
     }
     let root = canonical_workspace(&root)?;
