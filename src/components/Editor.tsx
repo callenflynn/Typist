@@ -9,9 +9,8 @@ type EditorProps = { value: string; onChange: (markdown: string) => void };
 export function MarkdownEditor({ value, onChange }: EditorProps) {
   const rootRef = useRef<HTMLDivElement>(null);
   const editorRef = useRef<Editor | null>(null);
-  const valueRef = useRef(value);
+  const lastValueRef = useRef(value);
   const onChangeRef = useRef(onChange);
-  valueRef.current = value;
   onChangeRef.current = onChange;
 
   useEffect(() => {
@@ -19,8 +18,11 @@ export function MarkdownEditor({ value, onChange }: EditorProps) {
     const editor = Editor.make()
       .config((ctx) => {
         ctx.set(rootCtx, rootRef.current);
-        ctx.set(defaultValueCtx, valueRef.current);
-        ctx.get(listenerCtx).markdownUpdated((_, markdown) => onChangeRef.current(markdown));
+        ctx.set(defaultValueCtx, value);
+        ctx.get(listenerCtx).markdownUpdated((_, markdown) => {
+          lastValueRef.current = markdown;
+          onChangeRef.current(markdown);
+        });
       })
       .use(commonmark)
       .use(gfm)
@@ -35,13 +37,14 @@ export function MarkdownEditor({ value, onChange }: EditorProps) {
 
   useEffect(() => {
     const editor = editorRef.current;
-    if (!editor || value === valueRef.current) return;
+    if (!editor || value === lastValueRef.current) return;
     try {
       const view = editor.ctx.get(editorViewCtx);
       const next = editor.ctx.get(parserCtx)(value);
       if (next && view.state.doc.textContent !== next.textContent) {
         view.dispatch(view.state.tr.replaceWith(0, view.state.doc.content.size, next.content));
       }
+      lastValueRef.current = value;
     } catch {
       // The editor may still be initializing; its default value handles that case.
     }

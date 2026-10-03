@@ -1,0 +1,33 @@
+# Maintainer: Callenflynn
+pkgname=typist
+pkgver=0.1.1.r21.g0244626
+pkgrel=1
+pkgdesc='A minimal, local-first Markdown editor'
+arch=('x86_64' 'aarch64')
+url='https://github.com/Callenflynn/Typist'
+license=('MIT')
+depends=('glib2' 'gtk3' 'webkit2gtk-4.1' 'libappindicator-gtk3' 'librsvg' 'openssl')
+makedepends=('git' 'bun' 'rust' 'cargo' 'gcc' 'patchelf')
+source=('typist::git+https://github.com/Callenflynn/Typist.git')
+sha256sums=('SKIP')
+
+pkgver() {
+  cd "$srcdir/typist"
+  git describe --long --tags --match 'v[0-9]*' | sed -E 's/^v//; s/([^-]+)-([0-9]+)-g/\1.r\2./; s/-/./g'
+}
+
+build() {
+  cd "$srcdir/typist"
+  export CARGO_HOME="$srcdir/cargo"
+  export npm_config_user_agent='bun/archlinux'
+  bun install --frozen-lockfile
+  bunx tauri build --bundles none
+}
+
+package() {
+  cd "$srcdir/typist"
+  install -Dm755 "src-tauri/target/release/typist" "$pkgdir/usr/bin/typist"
+  install -Dm644 "packaging/arch/typist.desktop" "$pkgdir/usr/share/applications/typist.desktop"
+  install -Dm644 "src-tauri/icons/128x128.png" "$pkgdir/usr/share/icons/hicolor/128x128/apps/typist.png"
+  install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+}

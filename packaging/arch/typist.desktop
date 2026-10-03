@@ -1,0 +1,12 @@
+[Desktop Entry]
+Name=Typist
+Comment=A minimal, local-first Markdown editor
+Exec=typist %F
+Icon=typist
+Terminal=false
+Type=Application
+Categories=Office;TextEditor;Utility;
+Keywords=Markdown;Editor;Notes;Journal;
+MimeType=text/markdown;text/x-markdown;
+StartupNotify=true
+StartupWMClass=typist
