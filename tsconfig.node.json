@@ -10,5 +10,5 @@
     "noEmit": true,
     "allowImportingTsExtensions": true
   },
-  "include": ["src/vite-placeholder.ts"]
+  "include": ["vite.config.ts"]
 }

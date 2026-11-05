@@ -1,31 +1,57 @@
 # Typist
 
-A small, local-first Markdown editor with a quiet, Typora-inspired writing surface.
+Typist is a minimal, local-first Markdown editor designed for distraction-free writing.
 
-On first launch, Typist creates one folder in the user's Documents directory:
+Open it, write, and it saves. Notes are plain `.md` files in `~/Documents/Typist`.
+There is no account, database, or vault to configure.
 
-```text
-Documents/Typist/Welcome.md
-```
+## What it does
 
-`Welcome.md` opens automatically with the basic instructions. There is no vault
-setup or account to configure; add and organize Markdown files directly in the
-Typist folder.
+- Creates `~/Documents/Typist` and a short `Welcome.md` on first launch.
+- Reopens the note you were writing last.
+- Creates, renames, and deletes notes and folders in the sidebar, with nested folders.
+- Saves 600 ms after you stop typing, and immediately with `Ctrl/Cmd+S`.
+- Shows `Saved`, `Unsaved`, `Saving…`, or `Could not save` beside the file name.
+- Flushes pending changes before switching notes and before the window closes.
+- Supports CommonMark and GitHub Flavored Markdown: headings, emphasis, lists,
+  task lists, links, blockquotes, code blocks, and tables.
+- Remembers the light or dark theme.
+- `Ctrl/Cmd+Shift+F` hides the sidebar for focus mode.
 
-## Linux quick start
+Saves are serialised through one queue and written to a temporary file before the
+real note is replaced, so an older save cannot overwrite newer text and an
+interrupted write cannot truncate a note.
 
-Typist is a Tauri 2 desktop app. The repository keeps the common workflows behind
-`make` so development does not depend on an IDE or desktop environment.
+## Development
+
+Requires [Bun](https://bun.sh) and the Tauri 2 system dependencies.
 
 ```sh
-make install    # install JavaScript dependencies
-make check      # typecheck and build the web app
-make tauri-dev  # run the desktop app
-make build      # build the release binary
+bun install
+bun run tauri dev     # desktop app
+bun run typecheck
+bun run build         # frontend bundle used by the desktop app
+bun test              # save queue and path unit tests
+cargo test --manifest-path src-tauri/Cargo.toml
 ```
 
-The Makefile prefers Bun (matching `bun.lock`), then falls back to pnpm or npm for
-contributors who already have one of those tools installed.
+`bun run dev` starts only the Vite shell. Without the Tauri runtime there is no
+filesystem access, so use the desktop app to write notes.
+
+The `Makefile` wraps the same commands, plus `make package-arch` for Arch Linux.
+
+## Storage
+
+All file access goes through the Rust commands in `src-tauri/src/commands.rs`:
+
+- The workspace is resolved once to `~/Documents/Typist` and created if missing.
+- Every path is canonicalised and checked against that folder, so `..` components
+  and symlinks cannot reach files outside it.
+- Symlinks and dotfiles are skipped when listing the workspace.
+- Notes are read as UTF-8 and written through a temporary file.
+
+Notes live only in that folder. The app locally remembers just your open note and
+theme preference, and never rewrites a note without an edit.
 
 ## Arch Linux
 
@@ -37,40 +63,31 @@ sudo pacman -U typist-*.pkg.tar.zst
 ```
 
 The package installs `typist` in `/usr/bin`, a desktop launcher, the application
-icon, and Markdown MIME associations. Runtime dependencies include WebKitGTK and
-GTK3, which are available in the official Arch repositories.
+icon, and Markdown MIME associations. Runtime dependencies are WebKitGTK, GTK3,
+and the usual Tauri stack from the official Arch repositories.
 
 ### Hyprland
 
-Typist uses a borderless, resizable Tauri window with an in-app title bar. This
-keeps the UI consistent with Hyprland and avoids requiring server-side decorations.
-The launcher works from `wofi`, `rofi-wayland`, or any `.desktop`-aware menu:
+Typist uses a borderless, resizable Tauri window with an in-app title bar, so it
+does not require server-side decorations. The launcher works from `wofi`,
+`rofi-wayland`, or any `.desktop`-aware menu:
 
 ```ini
 # ~/.config/hypr/hyprland.conf
 bind = $mod, T, exec, typist
 ```
 
-Use `Ctrl/Cmd+Shift+F` for a distraction-free focus mode and `Ctrl/Cmd+S` to flush
-the current file immediately. Files remain local and are also saved automatically
-after a short pause while typing.
-
-## Development notes
-
-The editor uses Milkdown with CommonMark and GFM support. The Arch build creates a
-native binary rather than an AppImage, which makes it friendlier to package
-managers and Wayland compositors.
-
+The Linux entry point sets `WEBKIT_DISABLE_DMABUF_RENDERER=1` when running under
+Wayland, which avoids the WebKitGTK renderer abort seen on Hyprland and other
+compositors. Explicit user settings are left untouched.
 
 ## Branding
 
-This project utilizes the following scheme:
 |  | Light Mode | Dark Mode |
 | --- | --- | --- |
 | **Primary** | `#FCFCFD` | `#1C1C1E` |
 | **Secondary** | `#F2F2F7` | `#2C2C2E` |
 | **Accent** | `#007AFF` | `#0A84FF` |
-| **Background** | `#FCFCFD` | `#1C1C1E` |
 | **Text** | `#1D1D1F` | `#F5F5F7` |
 
 ## License

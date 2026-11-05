@@ -23,55 +23,112 @@
 }
 
 @layer base {
-  html, body, #root { width: 100%; min-width: 0; min-height: 100%; height: 100%; }
+  html,
+  body,
+  #root {
+    width: 100%;
+    min-width: 0;
+    height: 100%;
+    min-height: 100%;
+  }
+
   body {
     margin: 0;
     background: var(--canvas);
     color: var(--text-primary);
     font-family: Inter, ui-sans-serif, system-ui, sans-serif;
-    transition: background-color 180ms ease, color 180ms ease;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  ::selection {
+    background: rgba(0, 122, 255, 0.18);
   }
 }
 
-.markdown-editor .editor {
-  min-height: 100%;
+.tree-active {
+  background: rgba(0, 122, 255, 0.1);
+}
+.dark .tree-active {
+  background: rgba(10, 132, 255, 0.18);
+}
+.tree-target {
+  background: rgba(0, 122, 255, 0.05);
+}
+.dark .tree-target {
+  background: rgba(10, 132, 255, 0.08);
+}
+
+.markdown-editor .ProseMirror {
+  min-height: 60vh;
   outline: none;
   font-size: 1.0625rem;
-  line-height: 1.9;
+  line-height: 1.8;
+  caret-color: var(--accent);
 }
-.markdown-editor h1, .markdown-editor h2, .markdown-editor h3 { margin: 1.5em 0 0.45em; font-weight: 650; letter-spacing: -0.03em; line-height: 1.15; }
-.markdown-editor h1 { font-size: 2.2rem; }
-.markdown-editor h2 { font-size: 1.55rem; }
+
+.markdown-editor h1,
+.markdown-editor h2,
+.markdown-editor h3 {
+  margin: 1.5em 0 0.45em;
+  font-weight: 650;
+  letter-spacing: -0.03em;
+  line-height: 1.15;
+}
+.markdown-editor h1 { margin-top: 0; font-size: 2.1rem; }
+.markdown-editor h2 { font-size: 1.5rem; }
 .markdown-editor h3 { font-size: 1.2rem; }
 .markdown-editor p { margin: 0.8em 0; }
-.markdown-editor ul, .markdown-editor ol { padding-left: 1.5rem; }
-.markdown-editor blockquote { margin: 1em 0; border-left: 3px solid var(--accent); padding-left: 1rem; color: var(--text-muted); }
-.markdown-editor code { border-radius: 0.35rem; background: var(--code); padding: 0.15em 0.35em; font-size: 0.9em; }
-.markdown-editor pre { overflow-x: auto; border-radius: 0.75rem; background: var(--code); padding: 1rem; }
-.markdown-editor a { color: var(--accent); }
-
-.typist-caret {
-  display: inline-block;
-  width: 2px;
-  height: 1em;
-  margin-left: 3px;
-  vertical-align: -0.08em;
-  background: var(--accent);
-  animation: typist-caret-blink 720ms steps(1, end) infinite;
+.markdown-editor ul,
+.markdown-editor ol { padding-left: 1.4rem; }
+.markdown-editor ul { list-style: disc; }
+.markdown-editor ol { list-style: decimal; }
+.markdown-editor li { margin: 0.25em 0; }
+.markdown-editor blockquote {
+  margin: 1em 0;
+  border-left: 3px solid var(--accent);
+  padding-left: 1rem;
+  color: var(--text-muted);
 }
-
-@keyframes typist-caret-blink {
-  0%, 48% { opacity: 1; }
-  49%, 100% { opacity: 0; }
+.markdown-editor code {
+  border-radius: 0.35rem;
+  background: var(--code);
+  padding: 0.15em 0.35em;
+  font-size: 0.9em;
 }
-
-@media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after {
-    transition-duration: 0.01ms !important;
-    animation-duration: 0.01ms !important;
-  }
-  .typist-caret {
-    animation: none;
-    opacity: 0;
-  }
+.markdown-editor pre {
+  overflow-x: auto;
+  border-radius: 0.75rem;
+  background: var(--code);
+  padding: 1rem;
 }
+.markdown-editor pre code { background: none; padding: 0; }
+.markdown-editor a { color: var(--accent); text-decoration: underline; }
+.markdown-editor hr { border: 0; border-top: 1px solid var(--border); margin: 2em 0; }
+.markdown-editor img { max-width: 100%; height: auto; border-radius: 0.5rem; }
+
+.markdown-editor table {
+  width: 100%;
+  margin: 1em 0;
+  border-collapse: collapse;
+  font-size: 0.95em;
+}
+.markdown-editor th,
+.markdown-editor td {
+  border: 1px solid var(--border);
+  padding: 0.4em 0.65em;
+  text-align: left;
+  vertical-align: top;
+}
+.markdown-editor th { background: var(--code); font-weight: 600; }
+
+.markdown-editor ul[data-type="taskList"] {
+  list-style: none;
+  padding-left: 0.25rem;
+}
+.markdown-editor ul[data-type="taskList"] li {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.55rem;
+}
+.markdown-editor ul[data-type="taskList"] li > label { margin-top: 0.35em; }
+.markdown-editor ul[data-type="taskList"] li > div { flex: 1; }

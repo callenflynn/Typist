@@ -1,25 +1,20 @@
 mod commands;
+mod workspace;
 
-use commands::{WindowState, WorkspaceState};
+use commands::Workspace;
 
 pub fn run() {
     tauri::Builder::default()
-        .manage(WindowState::default())
-        .manage(WorkspaceState::default())
-        .plugin(tauri_plugin_fs::init())
-        .plugin(tauri_plugin_updater::Builder::new().build())
-        .plugin(tauri_plugin_dialog::init())
+        .manage(Workspace::default())
         .invoke_handler(tauri::generate_handler![
-            commands::window_snapshot,
             commands::initialize_workspace,
-            commands::create_workspace,
-            commands::create_vault,
-            commands::open_daily_journal,
-            commands::list_workspace,
-            commands::read_workspace_file,
-            commands::write_workspace_file,
-            commands::choose_workspace,
-            commands::choose_markdown_file
+            commands::list_notes,
+            commands::read_note,
+            commands::write_note,
+            commands::create_note,
+            commands::create_folder,
+            commands::rename_entry,
+            commands::delete_entry
         ])
         .run(tauri::generate_context!())
         .expect("error while running Typist");
