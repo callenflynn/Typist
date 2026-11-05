@@ -15,6 +15,7 @@ pub fn run() {
             commands::create_workspace,
             commands::create_vault,
             commands::open_daily_journal,
+            commands::list_journal_days,
             commands::list_workspace,
             commands::read_workspace_file,
             commands::write_workspace_file,

@@ -10,6 +10,7 @@
   --code: #f2f2f7;
   --accent: #007aff;
   --border: rgba(0, 0, 0, 0.08);
+  --editor-font-size: 17px;
 }
 
 .dark {
@@ -36,9 +37,10 @@
 .markdown-editor .editor {
   min-height: 100%;
   outline: none;
-  font-size: 1.0625rem;
+  font-size: var(--editor-font-size);
   line-height: 1.9;
 }
+.markdown-editor { max-width: 680px; margin-left: auto; margin-right: auto; }
 .markdown-editor h1, .markdown-editor h2, .markdown-editor h3 { margin: 1.5em 0 0.45em; font-weight: 650; letter-spacing: -0.03em; line-height: 1.15; }
 .markdown-editor h1 { font-size: 2.2rem; }
 .markdown-editor h2 { font-size: 1.55rem; }

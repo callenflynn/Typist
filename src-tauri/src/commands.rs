@@ -116,6 +116,22 @@ fn validate_vault_name(name: &str) -> Result<&str, String> {
     Ok(name)
 }
 
+fn is_journal_name(name: &str) -> bool {
+    let stem = name.strip_suffix(".md").unwrap_or("");
+    stem.len() == 10
+        && stem.chars().take(4).all(|c| c.is_ascii_digit())
+        && stem.as_bytes().get(4) == Some(&b'-')
+        && stem.chars().skip(5).take(2).all(|c| c.is_ascii_digit())
+        && stem.as_bytes().get(7) == Some(&b'-')
+        && stem.chars().skip(8).take(2).all(|c| c.is_ascii_digit())
+}
+
+fn format_day(date: String) -> String {
+    chrono::NaiveDate::parse_from_str(&date, "%Y-%m-%d")
+        .map(|d| d.format("%A, %B %-d").to_string())
+        .unwrap_or(date)
+}
+
 async fn initialize_vault(root: PathBuf, name: &str, state: State<'_, WorkspaceState>) -> Result<String, String> {
     fs::create_dir_all(&root).map_err(|error| error.to_string())?;
     fs::create_dir_all(root.join("Journal")).map_err(|error| error.to_string())?;
@@ -143,17 +159,40 @@ pub async fn create_workspace(app: AppHandle, name: String, state: State<'_, Wor
     create_vault(app, name, None, state).await
 }
 
+#[derive(Serialize)]
+pub struct JournalDay {
+    pub path: String,
+    pub date: String,
+}
+
 #[tauri::command]
 pub async fn open_daily_journal(state: State<'_, WorkspaceState>) -> Result<String, String> {
-    let root = state.0.lock().await.clone().ok_or("vault is not selected")?;
-    let journal = root.join("Journal");
-    fs::create_dir_all(&journal).map_err(|error| error.to_string())?;
+    let root = state.0.lock().await.clone().ok_or("workspace is not selected")?;
     let date = chrono::Local::now().format("%Y-%m-%d").to_string();
-    let path = journal.join(format!("{date}.md"));
+    let path = root.join(format!("{date}.md"));
+    let display = format_day(date.clone());
     if !path.exists() {
-        fs::write(&path, format!("# {date}\n\n")).map_err(|error| error.to_string())?;
+        fs::write(&path, format!("# {display}\n\n")).map_err(|error| error.to_string())?;
     }
     Ok(path.to_string_lossy().into_owned())
+}
+
+#[tauri::command]
+pub async fn list_journal_days(state: State<'_, WorkspaceState>) -> Result<Vec<JournalDay>, String> {
+    let root = state.0.lock().await.clone().ok_or("workspace is not selected")?;
+    let entries = fs::read_dir(&root).map_err(|error| error.to_string())?
+        .filter_map(Result::ok)
+        .filter(|entry| entry.path().extension().is_some_and(|ext| ext == "md"))
+        .filter_map(|entry| {
+            let name = entry.file_name().to_string_lossy().into_owned();
+            if is_journal_name(&name) {
+                Some(JournalDay { path: entry.path().to_string_lossy().into_owned(), date: name.trim_end_matches(".md").to_string() })
+            } else { None }
+        })
+        .collect::<Vec<_>>();
+    let mut days: Vec<JournalDay> = entries.into_iter().collect();
+    days.sort_by(|a, b| b.date.cmp(&a.date));
+    Ok(days)
 }
 
 #[tauri::command]
