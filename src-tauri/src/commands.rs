@@ -1,21 +1,37 @@
+use crate::workspace::{self, TreeEntry};
 use serde::Serialize;
-use std::{fs, path::{Path, PathBuf}};
+use std::{
+    fs,
+    io::Write,
+    path::PathBuf,
+    sync::Mutex,
+    time::{SystemTime, UNIX_EPOCH},
+};
 use tauri::path::BaseDirectory;
 use tauri::{AppHandle, Manager, State};
-use tauri_plugin_dialog::DialogExt;
-use tokio::sync::Mutex;
 
+const WORKSPACE_FOLDER: &str = "Typist";
+const WELCOME_FILE: &str = "Welcome.md";
+
+const WELCOME_MARKDOWN: &str = r#"# Welcome to Typist
+
+Typist is a minimal, local-first Markdown editor. Everything you write lives in
+plain `.md` files under `Documents/Typist`, so any other Markdown editor can
+open it.
+
+## Getting started
+
+- Choose a note in the sidebar, or create one with the new-note button.
+- Type normally; Markdown is formatted as you write.
+- Your work saves automatically, and **Ctrl/Cmd+S** saves immediately.
+- Use the row buttons to rename or delete a note or folder.
+
+That is everything there is to configure. Have fun writing.
+"#;
+
+/// The Typist folder is resolved once, then every command is scoped to it.
 #[derive(Default)]
-pub struct WindowState(pub Mutex<WindowSnapshot>);
-
-#[derive(Default, Serialize)]
-pub struct WindowSnapshot {
-    pub focused: bool,
-    pub maximized: bool,
-}
-
-#[derive(Default)]
-pub struct WorkspaceState(pub Mutex<Option<PathBuf>>);
+pub struct Workspace(pub Mutex<Option<PathBuf>>);
 
 #[derive(Serialize)]
 pub struct WorkspaceInfo {
@@ -23,168 +39,216 @@ pub struct WorkspaceInfo {
     pub welcome: String,
 }
 
-const WELCOME_MARKDOWN: &str = r#"# Welcome to Typist
+fn ensure_workspace(app: &AppHandle, state: &State<'_, Workspace>) -> Result<PathBuf, String> {
+    if let Some(root) = state
+        .0
+        .lock()
+        .map_err(|_| "workspace is unavailable".to_string())?
+        .clone()
+    {
+        return Ok(root);
+    }
 
-Typist is a quiet, local-first Markdown editor. Your files live in:
+    let documents = app
+        .path()
+        .resolve("Documents", BaseDirectory::Home)
+        .map_err(|error| format!("could not locate your Documents folder: {error}"))?;
+    let folder = documents.join(WORKSPACE_FOLDER);
+    fs::create_dir_all(&folder)
+        .map_err(|error| format!("could not create {}: {error}", folder.display()))?;
+    let root = folder
+        .canonicalize()
+        .map_err(|error| format!("could not open {}: {error}", folder.display()))?;
 
-`Documents/Typist`
+    *state
+        .0
+        .lock()
+        .map_err(|_| "workspace is unavailable".to_string())? = Some(root.clone());
+    Ok(root)
+}
 
-## A few basics
-
-- Choose a Markdown file from the left sidebar to open it.
-- Type normally; Markdown formatting appears as you write.
-- Files save automatically, or use **Ctrl/Cmd+S** to save immediately.
-- Use **Ctrl/Cmd+Shift+F** for a distraction-free focus mode.
-- Use the sun/moon button to switch between light and dark themes.
-
-Everything stays on your computer. Add, rename, and organize Markdown files in
-your Typist folder with your normal file manager.
-"#;
+fn timestamp() -> u128 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|elapsed| elapsed.as_nanos())
+        .unwrap_or_default()
+}
 
 #[tauri::command]
-pub async fn initialize_workspace(app: AppHandle, state: State<'_, WorkspaceState>) -> Result<WorkspaceInfo, String> {
-    let documents = app.path().resolve("Documents", BaseDirectory::Home).map_err(|error| error.to_string())?;
-    let root = documents.join("Typist");
-    fs::create_dir_all(&root).map_err(|error| error.to_string())?;
-    let welcome = root.join("Welcome.md");
+pub fn initialize_workspace(
+    app: AppHandle,
+    state: State<'_, Workspace>,
+) -> Result<WorkspaceInfo, String> {
+    let root = ensure_workspace(&app, &state)?;
+    let welcome = root.join(WELCOME_FILE);
     if !welcome.exists() {
-        fs::write(&welcome, WELCOME_MARKDOWN).map_err(|error| error.to_string())?;
+        fs::write(&welcome, WELCOME_MARKDOWN)
+            .map_err(|error| format!("could not create {}: {error}", welcome.display()))?;
     }
-    let root = canonical_workspace(&root)?;
-    let welcome = root.join("Welcome.md");
-    *state.0.lock().await = Some(root.clone());
-    Ok(WorkspaceInfo { root: root.to_string_lossy().into_owned(), welcome: welcome.to_string_lossy().into_owned() })
-}
-
-fn canonical_workspace(root: &Path) -> Result<PathBuf, String> {
-    root.canonicalize().map_err(|error| format!("invalid workspace: {error}"))
-}
-
-fn safe_path(root: &Path, requested: &str) -> Result<PathBuf, String> {
-    let root = canonical_workspace(root)?;
-    let path = PathBuf::from(requested);
-    let candidate = if path.is_absolute() { path } else { root.join(path) };
-    let canonical = if candidate.exists() {
-        candidate.canonicalize().map_err(|error| error.to_string())?
-    } else {
-        let parent = candidate.parent().ok_or("invalid file path")?.canonicalize().map_err(|error| error.to_string())?;
-        parent.join(candidate.file_name().ok_or("invalid file path")?)
-    };
-    if canonical == root || !canonical.starts_with(&root) {
-        return Err("path is outside the workspace".into());
-    }
-    Ok(canonical)
+    Ok(WorkspaceInfo {
+        root: root.to_string_lossy().into_owned(),
+        welcome: welcome.to_string_lossy().into_owned(),
+    })
 }
 
 #[tauri::command]
-pub async fn window_snapshot(app: AppHandle, state: State<'_, WindowState>) -> Result<WindowSnapshot, String> {
-    let window = app.get_webview_window("main").ok_or("main window not found")?;
-    let snapshot = WindowSnapshot { focused: window.is_focused().unwrap_or(false), maximized: window.is_maximized().unwrap_or(false) };
-    *state.0.lock().await = WindowSnapshot { focused: snapshot.focused, maximized: snapshot.maximized };
-    Ok(snapshot)
+pub fn list_notes(app: AppHandle, state: State<'_, Workspace>) -> Result<Vec<TreeEntry>, String> {
+    let root = ensure_workspace(&app, &state)?;
+    Ok(workspace::walk(&root))
 }
 
-#[derive(Serialize)]
-pub struct TreeEntry {
-    pub name: String,
-    pub path: String,
-    pub directory: bool,
-    pub children: Option<Vec<TreeEntry>>,
+#[tauri::command]
+pub fn read_note(
+    app: AppHandle,
+    state: State<'_, Workspace>,
+    path: String,
+) -> Result<String, String> {
+    let root = ensure_workspace(&app, &state)?;
+    let path = workspace::resolve(&root, &path)?;
+    if !path.is_file() {
+        return Err("that note no longer exists".into());
+    }
+    fs::read_to_string(&path).map_err(|error| format!("could not open {}: {error}", path.display()))
 }
 
-fn walk(path: &Path, root: &Path) -> Result<Vec<TreeEntry>, String> {
-    let mut entries = fs::read_dir(path).map_err(|error| error.to_string())?
-        .filter_map(Result::ok)
-        .map(|entry| entry.path())
-        .filter(|path| !path.file_name().is_some_and(|name| name == ".git"))
-        .map(|path| {
-            let directory = path.is_dir();
-            Ok(TreeEntry { name: path.file_name().unwrap_or_default().to_string_lossy().into_owned(), path: path.to_string_lossy().into_owned(), directory, children: directory.then(|| walk(&path, root)).transpose()? })
+#[tauri::command]
+pub fn write_note(
+    app: AppHandle,
+    state: State<'_, Workspace>,
+    path: String,
+    contents: String,
+) -> Result<(), String> {
+    let root = ensure_workspace(&app, &state)?;
+    let path = workspace::resolve(&root, &path)?;
+    let parent = path.parent().ok_or("invalid file path")?;
+    if !parent.is_dir() {
+        return Err("the note's folder no longer exists".into());
+    }
+
+    // Write to a sibling file first so an interrupted save cannot truncate a
+    // note. `rename` replaces atomically on Unix; Windows needs the copy path.
+    let temp = parent.join(format!(
+        ".typist-save-{}-{}.tmp",
+        std::process::id(),
+        timestamp()
+    ));
+    let written = fs::File::create(&temp)
+        .and_then(|mut file| {
+            file.write_all(contents.as_bytes())?;
+            file.sync_all()
         })
-        .collect::<Result<Vec<_>, String>>()?;
-    entries.sort_by_key(|entry| (!entry.directory, entry.name.to_lowercase()));
-    let _ = root;
-    Ok(entries)
-}
+        .and_then(|()| match fs::rename(&temp, &path) {
+            Ok(()) => Ok(()),
+            Err(_) if path.exists() => fs::copy(&temp, &path).map(|_| ()),
+            Err(error) => Err(error),
+        });
 
-fn validate_vault_name(name: &str) -> Result<&str, String> {
-    let name = name.trim();
-    if name.is_empty() || name == "." || name == ".." || name.contains(['/', '\\']) {
-        return Err("vault name must be a simple folder name".into());
+    if written.is_err() {
+        let _ = fs::remove_file(&temp);
     }
-    Ok(name)
-}
-
-async fn initialize_vault(root: PathBuf, name: &str, state: State<'_, WorkspaceState>) -> Result<String, String> {
-    fs::create_dir_all(&root).map_err(|error| error.to_string())?;
-    fs::create_dir_all(root.join("Journal")).map_err(|error| error.to_string())?;
-    let readme = root.join("README.md");
-    if !readme.exists() {
-        fs::write(&readme, format!("# {name}\n\nYour local Typist vault.\n")).map_err(|error| error.to_string())?;
-    }
-    let root = canonical_workspace(&root)?;
-    *state.0.lock().await = Some(root.clone());
-    Ok(root.to_string_lossy().into_owned())
+    written.map_err(|error| format!("could not save {}: {error}", path.display()))
 }
 
 #[tauri::command]
-pub async fn create_vault(app: AppHandle, name: String, custom_parent: Option<String>, state: State<'_, WorkspaceState>) -> Result<String, String> {
-    let name = validate_vault_name(&name)?;
-    let parent = match custom_parent {
-        Some(path) if !path.trim().is_empty() => PathBuf::from(path),
-        _ => app.path().resolve("Documents", BaseDirectory::Home).map_err(|error| error.to_string())?,
+pub fn create_note(
+    app: AppHandle,
+    state: State<'_, Workspace>,
+    directory: Option<String>,
+) -> Result<String, String> {
+    let root = ensure_workspace(&app, &state)?;
+    let directory = workspace::resolve_directory(&root, directory.as_deref())?;
+
+    for index in 1..10_000 {
+        let candidate = directory.join(workspace::note_name(index));
+        match fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&candidate)
+        {
+            Ok(_) => return Ok(candidate.to_string_lossy().into_owned()),
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(error) => {
+                return Err(format!(
+                    "could not create a note in {}: {error}",
+                    directory.display()
+                ))
+            }
+        }
+    }
+    Err("could not find a free note name".into())
+}
+
+#[tauri::command]
+pub fn create_folder(
+    app: AppHandle,
+    state: State<'_, Workspace>,
+    directory: Option<String>,
+) -> Result<String, String> {
+    let root = ensure_workspace(&app, &state)?;
+    let directory = workspace::resolve_directory(&root, directory.as_deref())?;
+
+    for index in 1..10_000 {
+        let candidate = directory.join(workspace::folder_name(index));
+        match fs::create_dir(&candidate) {
+            Ok(()) => return Ok(candidate.to_string_lossy().into_owned()),
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(error) => return Err(format!("could not create a folder: {error}")),
+        }
+    }
+    Err("could not find a free folder name".into())
+}
+
+#[tauri::command]
+pub fn rename_entry(
+    app: AppHandle,
+    state: State<'_, Workspace>,
+    path: String,
+    name: String,
+) -> Result<String, String> {
+    let root = ensure_workspace(&app, &state)?;
+    let source = workspace::resolve(&root, &path)?;
+    if source == root {
+        return Err("the Typist folder cannot be renamed".into());
+    }
+
+    let name = workspace::sanitize_name(&name)?;
+    let file_name = if source.is_dir() || name.to_lowercase().ends_with(".md") {
+        name
+    } else {
+        format!("{name}.md")
     };
-    initialize_vault(parent.join(name), name, state).await
-}
 
-#[tauri::command]
-pub async fn create_workspace(app: AppHandle, name: String, state: State<'_, WorkspaceState>) -> Result<String, String> {
-    create_vault(app, name, None, state).await
-}
-
-#[tauri::command]
-pub async fn open_daily_journal(state: State<'_, WorkspaceState>) -> Result<String, String> {
-    let root = state.0.lock().await.clone().ok_or("vault is not selected")?;
-    let journal = root.join("Journal");
-    fs::create_dir_all(&journal).map_err(|error| error.to_string())?;
-    let date = chrono::Local::now().format("%Y-%m-%d").to_string();
-    let path = journal.join(format!("{date}.md"));
-    if !path.exists() {
-        fs::write(&path, format!("# {date}\n\n")).map_err(|error| error.to_string())?;
+    let parent = source.parent().ok_or("invalid file path")?;
+    let target = parent.join(file_name);
+    if target == source {
+        return Ok(target.to_string_lossy().into_owned());
     }
-    Ok(path.to_string_lossy().into_owned())
+    if target.exists() {
+        return Err("an item with that name already exists".into());
+    }
+
+    fs::rename(&source, &target).map_err(|error| format!("could not rename: {error}"))?;
+    Ok(target.to_string_lossy().into_owned())
 }
 
 #[tauri::command]
-pub async fn list_workspace(path: String, state: State<'_, WorkspaceState>) -> Result<Vec<TreeEntry>, String> {
-    let root = canonical_workspace(Path::new(&path))?;
-    *state.0.lock().await = Some(root.clone());
-    walk(&root, &root)
-}
+pub fn delete_entry(
+    app: AppHandle,
+    state: State<'_, Workspace>,
+    path: String,
+) -> Result<(), String> {
+    let root = ensure_workspace(&app, &state)?;
+    let path = workspace::resolve(&root, &path)?;
+    if path == root {
+        return Err("the Typist folder cannot be deleted".into());
+    }
 
-#[tauri::command]
-pub async fn read_workspace_file(path: String, state: State<'_, WorkspaceState>) -> Result<String, String> {
-    let root = state.0.lock().await.clone().ok_or("vault is not selected")?;
-    fs::read_to_string(safe_path(&root, &path)?).map_err(|error| error.to_string())
-}
-
-#[tauri::command]
-pub async fn write_workspace_file(path: String, contents: String, state: State<'_, WorkspaceState>) -> Result<(), String> {
-    let root = state.0.lock().await.clone().ok_or("vault is not selected")?;
-    fs::write(safe_path(&root, &path)?, contents).map_err(|error| error.to_string())
-}
-
-#[tauri::command]
-pub async fn choose_workspace(app: AppHandle, state: State<'_, WorkspaceState>) -> Result<Option<String>, String> {
-    let selected = app.dialog().file().set_title("Choose vault").blocking_pick_folder();
-    let Some(path) = selected else { return Ok(None); };
-    let path = path.into_path().map_err(|error| error.to_string())?;
-    let root = canonical_workspace(&path)?;
-    *state.0.lock().await = Some(root.clone());
-    Ok(Some(root.to_string_lossy().into_owned()))
-}
-
-#[tauri::command]
-pub fn choose_markdown_file(app: AppHandle) -> Option<String> {
-    app.dialog().file().add_filter("Markdown", &["md", "markdown"]).blocking_pick_file().and_then(|path| path.into_path().ok()).map(|path| path.to_string_lossy().into_owned())
+    let metadata = fs::symlink_metadata(&path)
+        .map_err(|error| format!("could not delete {}: {error}", path.display()))?;
+    let result = if metadata.is_dir() {
+        fs::remove_dir_all(&path)
+    } else {
+        fs::remove_file(&path)
+    };
+    result.map_err(|error| format!("could not delete {}: {error}", path.display()))
 }

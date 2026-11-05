@@ -1,54 +1,72 @@
-import { Editor, rootCtx, defaultValueCtx, editorViewCtx, parserCtx } from "@milkdown/core";
+import { Editor, defaultValueCtx, editorViewCtx, rootCtx } from "@milkdown/core";
+import { listener, listenerCtx } from "@milkdown/plugin-listener";
 import { commonmark } from "@milkdown/preset-commonmark";
 import { gfm } from "@milkdown/preset-gfm";
-import { listener, listenerCtx } from "@milkdown/plugin-listener";
 import { useEffect, useRef } from "react";
 
-type EditorProps = { value: string; onChange: (markdown: string) => void };
+type EditorProps = {
+  /** Markdown for one document. The parent keys the editor per document. */
+  initialValue: string;
+  onChange: (markdown: string) => void;
+};
 
-export function MarkdownEditor({ value, onChange }: EditorProps) {
+/**
+ * A single Milkdown instance per open document.
+ *
+ * The editor owns its document while it is mounted; React never pushes new
+ * text into a live editor. Switching notes remounts the component with the
+ * next document's text, which removes the whole class of "which side is the
+ * source of truth" races and keeps the cursor, undo history, and formatting
+ * local to the file being edited.
+ */
+export function MarkdownEditor({ initialValue, onChange }: EditorProps) {
   const rootRef = useRef<HTMLDivElement>(null);
-  const editorRef = useRef<Editor | null>(null);
-  const lastValueRef = useRef(value);
   const onChangeRef = useRef(onChange);
   onChangeRef.current = onChange;
 
   useEffect(() => {
-    if (!rootRef.current) return;
+    const root = rootRef.current;
+    if (!root) return;
+
+    let disposed = false;
     const editor = Editor.make()
       .config((ctx) => {
-        ctx.set(rootCtx, rootRef.current);
-        ctx.set(defaultValueCtx, value);
+        ctx.set(rootCtx, root);
+        ctx.set(defaultValueCtx, initialValue);
         ctx.get(listenerCtx).markdownUpdated((_, markdown) => {
-          lastValueRef.current = markdown;
-          onChangeRef.current(markdown);
+          if (!disposed) onChangeRef.current(markdown);
         });
       })
       .use(commonmark)
       .use(gfm)
       .use(listener);
-    editorRef.current = editor;
-    editor.create().catch(() => undefined);
+
+    editor
+      .create()
+      .then(() => {
+        if (disposed) {
+          void editor.destroy();
+          return;
+        }
+        try {
+          editor.ctx.get(editorViewCtx).focus();
+        } catch {
+          // The view is not ready; the editor stays usable without focus.
+        }
+      })
+      .catch(() => undefined);
+
     return () => {
-      editor.destroy().catch(() => undefined);
-      editorRef.current = null;
+      disposed = true;
+      void editor.destroy().catch(() => undefined);
     };
-  }, []);
+  }, [initialValue]);
 
-  useEffect(() => {
-    const editor = editorRef.current;
-    if (!editor || value === lastValueRef.current) return;
-    try {
-      const view = editor.ctx.get(editorViewCtx);
-      const next = editor.ctx.get(parserCtx)(value);
-      if (next && view.state.doc.textContent !== next.textContent) {
-        view.dispatch(view.state.tr.replaceWith(0, view.state.doc.content.size, next.content));
-      }
-      lastValueRef.current = value;
-    } catch {
-      // The editor may still be initializing; its default value handles that case.
-    }
-  }, [value]);
-
-  return <div ref={rootRef} aria-label="Markdown document" className="markdown-editor mx-auto min-h-0 w-full max-w-3xl flex-1 overflow-auto px-6 py-12" />;
+  return (
+    <div
+      ref={rootRef}
+      aria-label="Markdown document"
+      className="markdown-editor text-[var(--text-primary)]"
+    />
+  );
 }

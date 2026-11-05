@@ -2,11 +2,13 @@
   "name": "typist",
   "private": true,
   "version": "0.1.1",
+  "description": "Typist is a minimal, local-first Markdown editor designed for distraction-free writing.",
   "type": "module",
   "scripts": {
     "dev": "vite --host 0.0.0.0",
     "build": "tsc -b && vite build",
-    "typecheck": "tsc -b --noEmit",
+    "typecheck": "tsc -b",
+    "test": "bun test tests",
     "tauri": "tauri"
   },
   "dependencies": {
@@ -14,12 +16,7 @@
     "@milkdown/plugin-listener": "^7.17.1",
     "@milkdown/preset-commonmark": "^7.17.1",
     "@milkdown/preset-gfm": "^7.17.1",
-    "@milkdown/react": "^7.17.1",
     "@tauri-apps/api": "2.11.1",
-    "@tauri-apps/plugin-dialog": "2.7.2",
-    "@tauri-apps/plugin-fs": "2.5.1",
-    "@tauri-apps/plugin-updater": "2.10.1",
-    "framer-motion": "^12.23.12",
     "lucide-react": "^0.468.0",
     "react": "^19.1.1",
     "react-dom": "^19.1.1"
