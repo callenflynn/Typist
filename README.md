@@ -77,9 +77,64 @@ does not require server-side decorations. The launcher works from `wofi`,
 bind = $mod, T, exec, typist
 ```
 
-The Linux entry point sets `WEBKIT_DISABLE_DMABUF_RENDERER=1` when running under
-Wayland, which avoids the WebKitGTK renderer abort seen on Hyprland and other
-compositors. Explicit user settings are left untouched.
+#### Disappearing or invisible window on Wayland
+
+**Symptom.** Parts of the Typist window, or the entire window, turn invisible or
+stop repainting as the mouse moves across it. On Hyprland you may also see
+`GDK Error 71` or WebKitGTK renderer aborts in the log.
+
+**Cause.** WebKitGTK's DMABUF renderer is known to abort or drop surface
+contents on Wayland compositors (Hyprland in particular), and a transparent
+window surface can compound the corruption. Typist works around this on Linux by
+setting `WEBKIT_DISABLE_DMABUF_RENDERER=1` before the WebKitGTK WebView is
+created, but only when a Wayland display is present and only when you have not
+already expressed a preference.
+
+**Automatic behaviour.** When `WAYLAND_DISPLAY` is set, the Linux entry point
+sets `WEBKIT_DISABLE_DMABUF_RENDERER=1` unless any of these variables is
+already present in your environment:
+
+- `WEBKIT_DISABLE_DMABUF_RENDERER`
+- `WEBKIT_DISABLE_COMPOSITING_MODE`
+- `__NV_DISABLE_EXPLICIT_SYNC`
+- `TYPIST_DISABLE_DMABUF`
+- `TYPIST_DISABLE_COMPOSITING`
+
+Variables you set explicitly are never overwritten. X11 sessions and
+non-Linux platforms are completely unaffected, and GPU acceleration is not
+disabled globally.
+
+**NVIDIA.** On NVIDIA + Wayland, `__NV_DISABLE_EXPLICIT_SYNC=1` is often
+preferable to disabling DMABUF because it keeps GPU rendering while avoiding
+explicit-sync aborts. Typist does not detect your GPU or set this itself — if
+you are on NVIDIA, try it manually first. `WEBKIT_DISABLE_COMPOSITING_MODE=1`
+is a last-resort diagnostic fallback and is never enabled by default.
+
+**Manual launch overrides**
+
+```bash
+typist                                  # automatic workaround under Wayland
+WEBKIT_DISABLE_DMABUF_RENDERER=1 typist # force the DMABUF workaround
+__NV_DISABLE_EXPLICIT_SYNC=1 typist     # NVIDIA explicit-sync workaround
+WEBKIT_DISABLE_COMPOSITING_MODE=1 typist # last-resort diagnostic fallback
+```
+
+Typist-owned diagnostic overrides are also respected under Wayland:
+
+- `TYPIST_DISABLE_DMABUF=1` force-enables `WEBKIT_DISABLE_DMABUF_RENDERER=1`.
+- `TYPIST_DISABLE_COMPOSITING=1` force-enables `WEBKIT_DISABLE_COMPOSITING_MODE=1`.
+- `TYPIST_DISABLE_DMABUF=0` opts out of the automatic DMABUF workaround.
+
+Disabling the DMABUF renderer trades some rendering performance for stability.
+
+**Collecting logs**
+
+```bash
+typist 2>&1 | tee /tmp/typist.log
+```
+
+Look for WebKitGTK/GDK aborts (e.g. `GDK Error 71`) and share `/tmp/typist.log`
+when filing an issue.
 
 ## Branding
 
