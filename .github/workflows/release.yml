@@ -62,15 +62,18 @@ jobs:
         run: bun run build
 
       - name: Build Tauri binary
-        run: cargo build --release --target ${{ matrix.target }} --manifest-path src-tauri/Cargo.toml
+        run: |
+          cargo build --release --target ${{ matrix.target }} --manifest-path src-tauri/Cargo.toml
 
       - name: Rename binary for asset
         run: |
-          case "${{ runner.os }}" in
-            Linux) cp src-tauri/target/${{ matrix.target }}/release/typist typist-linux ;;
-            Windows) cp src-tauri/target/${{ matrix.target }}/release/typist.exe typist-windows.exe ;;
-            macOS) cp src-tauri/target/${{ matrix.target }}/release/typist typist-macos ;;
-          esac
+          if [ "${{ runner.os }}" = "Linux" ]; then
+            cp src-tauri/target/${{ matrix.target }}/release/typist typist-linux
+          elif [ "${{ runner.os }}" = "Windows" ]; then
+            cp src-tauri/target/${{ matrix.target }}/release/typist.exe typist-windows.exe
+          elif [ "${{ runner.os }}" = "macOS" ]; then
+            cp src-tauri/target/${{ matrix.target }}/release/typist typist-macos
+          fi
 
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
