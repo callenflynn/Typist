@@ -56,7 +56,7 @@ jobs:
         run: bun run build
 
       - name: Build Tauri binary
-        run: cargo build --release --target ${{ matrix.target }}
+        run: cargo build --release --target ${{ matrix.target }} --manifest-path src-tauri/Cargo.toml
 
       - name: Rename binary for asset
         run: |
