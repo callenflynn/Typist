@@ -85,3 +85,35 @@ export function flattenNotes(entries: TreeEntry[]): TreeEntry[] {
 export function looksLikeJournalName(name: string): boolean {
   return isJournalFile(name);
 }
+
+const pad = (n: number): string => String(n).padStart(2, "0");
+
+/** The system local date as `YYYY-MM-DD` (not UTC). */
+export function localToday(): string {
+  const d = new Date();
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
+/** Builds a 6-week grid of days for `YYYY-MM`, tagging each with whether it
+ * belongs to the viewed month. All dates are local. */
+export function buildMonthDays(ym: string): {
+  date: string;
+  day: number;
+  currentMonth: boolean;
+}[] {
+  const [y, m] = ym.split("-").map(Number);
+  const first = new Date(y, (m ?? 1) - 1, 1);
+  const start = new Date(first);
+  start.setDate(first.getDate() - first.getDay()); // begin on Sunday
+  const days: { date: string; day: number; currentMonth: boolean }[] = [];
+  let cursor = new Date(start);
+  for (let i = 0; i < 42; i++) {
+    days.push({
+      date: `${cursor.getFullYear()}-${pad(cursor.getMonth() + 1)}-${pad(cursor.getDate())}`,
+      day: cursor.getDate(),
+      currentMonth: cursor.getFullYear() === y && cursor.getMonth() === (m ?? 1) - 1,
+    });
+    cursor.setDate(cursor.getDate() + 1);
+  }
+  return days;
+}

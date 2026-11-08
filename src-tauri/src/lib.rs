@@ -11,6 +11,7 @@ pub fn run() {
             commands::list_notes,
             commands::read_note,
             commands::write_note,
+            commands::open_daily_journal,
             commands::create_note,
             commands::create_folder,
             commands::rename_entry,
