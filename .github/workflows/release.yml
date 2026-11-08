@@ -53,6 +53,7 @@ jobs:
         run: cargo build --release --target ${{ matrix.target }}
 
       - name: Rename binary for asset
+        shell: bash
         run: |
           case "${{ runner.os }}" in
             Linux) cp src-tauri/target/${{ matrix.target }}/release/typist typist-linux ;;
