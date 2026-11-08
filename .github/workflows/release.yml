@@ -72,7 +72,7 @@ jobs:
           elif [ "${{ runner.os }}" = "Windows" ]; then
             cp src-tauri/target/${{ matrix.target }}/release/typist.exe typist-windows.exe
           elif [ "${{ runner.os }}" = "macOS" ]; then
-            cp src-tauri/target/${{ matrix.target }}/release/typist typist-macos
+            install -c src-tauri/target/${{ matrix.target }}/release/typist typist-macos
           fi
 
       - name: Upload build artifact
