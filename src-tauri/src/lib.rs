@@ -6,6 +6,7 @@ use commands::Workspace;
 pub fn run() {
     tauri::Builder::default()
         .manage(Workspace::default())
+        .plugin(tauri_plugin_fs::init())
         .invoke_handler(tauri::generate_handler![
             commands::initialize_workspace,
             commands::list_notes,

@@ -14,6 +14,7 @@ tauri-build = { version = "2.7.1", features = [] }
 
 [dependencies]
 tauri = { version = "2.11.1", features = ["macos-private-api"] }
+tauri-plugin-fs = { version = "2.2.0" }
 serde = { version = "1", features = ["derive"] }
 
 [profile.release]
