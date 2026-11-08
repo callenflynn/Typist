@@ -1,26 +1,34 @@
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { Minus, Moon, Square, Sun, X } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { Minus, Moon, Square, Sun, Settings as Gear, X } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import typistLogo from "../assets/typist.png";
+import { Calendar } from "./components/Calendar";
+import { CommandPalette } from "./components/CommandPalette";
 import { MarkdownEditor } from "./components/Editor";
-import { Sidebar } from "./components/Sidebar";
+import { Settings } from "./components/Settings";
 import {
-  createFolder,
-  createNote,
-  deleteEntry,
   initializeWorkspace,
   listNotes,
+  openDailyJournal,
   readNote,
-  renameEntry,
   type TreeEntry,
   writeNote,
 } from "./lib/notes";
-import { basename, isWithin, remapPath } from "./lib/paths";
+import { basename } from "./lib/paths";
 import { createSaveQueue, type SaveState } from "./lib/saveQueue";
+import {
+  applyPreset,
+  getDefaultPresetId,
+  resolveDefaultPreset,
+  setDefaultPresetId,
+  type JournalPreset,
+} from "./lib/presets";
+import { dayLabel, fullDateLabel, isJournalFile, localToday } from "./utils/journal";
 import "./index.css";
 
 const LAST_FILE_KEY = "typist-last-file";
 const THEME_KEY = "typist-theme";
+const NATIVE_TITLEBAR_KEY = "typist-native-titlebar";
 const SAVE_DELAY_MS = 600;
 
 type OpenNote = { id: number; path: string; text: string };
@@ -57,18 +65,12 @@ function initialTheme(): "light" | "dark" {
   return window.matchMedia?.("(prefers-color-scheme: dark)").matches ? "dark" : "light";
 }
 
-function firstNote(entries: TreeEntry[]): string | undefined {
-  for (const entry of entries) {
-    if (!entry.directory) return entry.path;
-    const nested = entry.children ? firstNote(entry.children) : undefined;
-    if (nested) return nested;
-  }
-  return undefined;
-}
-
 export default function App() {
   const desktop = isDesktop();
   const [theme, setTheme] = useState<"light" | "dark">(initialTheme);
+  const [nativeTitlebar, setNativeTitlebar] = useState<boolean>(
+    () => readStored(NATIVE_TITLEBAR_KEY) === "true",
+  );
   const [root, setRoot] = useState<string>();
   const [entries, setEntries] = useState<TreeEntry[]>([]);
   const [note, setNote] = useState<OpenNote | null>(null);
@@ -77,6 +79,17 @@ export default function App() {
   const [maximized, setMaximized] = useState(false);
   const [opening, setOpening] = useState(desktop);
   const [notice, setNotice] = useState<string>();
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [paletteOpen, setPaletteOpen] = useState(false);
+
+  const today = localToday();
+  const [defaultPresetId, setLocalDefaultPresetId] = useState<string>(
+    () => getDefaultPresetId() ?? "blank",
+  );
+  const defaultPresetRef = useRef<JournalPreset>(resolveDefaultPreset());
+  useEffect(() => {
+    defaultPresetRef.current = resolveDefaultPreset();
+  }, [defaultPresetId]);
 
   const noteRef = useRef<OpenNote | null>(null);
   const content = useRef("");
@@ -85,9 +98,37 @@ export default function App() {
   const debounce = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const nextId = useRef(1);
   const queue = useRef<ReturnType<typeof createSaveQueue> | undefined>(undefined);
-  const welcomePath = useRef<string | undefined>(undefined);
+  const rootRef = useRef<string | undefined>(undefined);
   const closing = useRef(false);
   const loadToken = useRef(0);
+
+  // Keeps `rootRef` in sync so `openJournalDay` always uses the latest workspace root.
+  useEffect(() => {
+    rootRef.current = root;
+  }, [root]);
+
+  // Journal days already written to disk, used to mark existing days in the
+  // calendar and to feed the fuzzy command palette.
+  const journalDays = useMemo(() => {
+    const days: { path: string; date: string }[] = [];
+    const walk = (list: TreeEntry[]) => {
+      for (const entry of list) {
+        if (!entry.directory && isJournalFile(entry.name)) {
+          days.push({ path: entry.path, date: entry.name.replace(/\.md$/i, "") });
+        }
+        if (entry.children) walk(entry.children);
+      }
+    };
+    walk(entries);
+    return days.sort((a, b) => b.date.localeCompare(a.date));
+  }, [entries]);
+
+  const journalDaysSet = useMemo(
+    () => new Set(journalDays.map((day) => day.date)),
+    [journalDays],
+  );
+
+  const noteDate = note ? basename(note.path).replace(/\.md$/i, "") : today;
 
   const handleSaveState = useCallback((state: SaveState, path: string) => {
     const current = noteRef.current;
@@ -199,62 +240,53 @@ export default function App() {
     [desktop, persist, showNote],
   );
 
-  const createEntry = useCallback(
-    async (kind: "note" | "folder", directory: string) => {
-      const path = kind === "note" ? await createNote(directory) : await createFolder(directory);
-      await refreshNotes();
-      if (kind === "note") await openNote(path);
-      return path;
-    },
-    [openNote, refreshNotes],
-  );
-
-  const renameNote = useCallback(
-    async (path: string, name: string) => {
-      // Settle pending text before the file moves, so no save targets a stale path.
-      if (noteRef.current?.path === path) await persist();
-      const next = await renameEntry(path, name);
-      const current = noteRef.current;
-      if (current && isWithin(current.path, path)) {
-        const moved = remapPath(current.path, path, next);
-        noteRef.current = { ...current, path: moved };
-        setNote((open) => (open ? { ...open, path: moved } : open));
-        writeStored(LAST_FILE_KEY, moved);
+  const openJournalDay = useCallback(
+    async (date: string) => {
+      if (!desktop) return;
+      const r = rootRef.current;
+      if (!r) return;
+      if (!(await persist())) {
+        setNotice("Could not save the current note. Save it before switching days.");
+        return;
       }
-      await refreshNotes();
-    },
-    [persist, refreshNotes],
-  );
-
-  const deleteNote = useCallback(
-    async (path: string) => {
-      await persist();
-      await deleteEntry(path);
-      const wasOpen = noteRef.current ? isWithin(noteRef.current.path, path) : false;
-      if (wasOpen) {
-        noteRef.current = null;
-        content.current = "";
-        savedText.current = "";
-        setNote(null);
-      }
-      const next = await refreshNotes();
-      if (!wasOpen) return;
-
-      const fallback = welcomePath.current ?? firstNote(next);
-      if (!fallback) return;
+      const path = `${r}/${date}.md`;
+      if (noteRef.current?.path === path) return;
+      const token = ++loadToken.current;
+      setOpening(true);
       try {
-        showNote(fallback, await readNote(fallback));
-      } catch {
-        // The welcome note was removed too; the empty state takes over.
+        const preset = defaultPresetRef.current;
+        const resolved = await openDailyJournal(
+          date,
+          preset.template ? applyPreset(preset.template, date) : "",
+        );
+        // A newer click may have started another load; ignore the stale result.
+        if (token !== loadToken.current) return;
+        const text = await readNote(resolved);
+        if (token !== loadToken.current) return;
+        showNote(resolved, text);
+        setNotice(undefined);
+      } catch (reason) {
+        setNotice(errorMessage(reason));
+      } finally {
+        setOpening(false);
       }
     },
-    [persist, refreshNotes, showNote],
+    [desktop, persist],
   );
 
   useEffect(() => {
     document.documentElement.classList.toggle("dark", theme === "dark");
     writeStored(THEME_KEY, theme);
   }, [theme]);
+
+  useEffect(() => {
+    writeStored(NATIVE_TITLEBAR_KEY, String(nativeTitlebar));
+  }, [nativeTitlebar]);
+
+  useEffect(() => {
+    if (!desktop) return;
+    void getCurrentWindow().setDecorations(nativeTitlebar);
+  }, [desktop, nativeTitlebar]);
 
   useEffect(() => {
     if (!desktop) {
@@ -267,23 +299,11 @@ export default function App() {
       try {
         const info = await initializeWorkspace();
         if (cancelled) return;
-        welcomePath.current = info.welcome;
         setRoot(info.root);
-
-        const last = readStored(LAST_FILE_KEY);
-        if (last) {
-          try {
-            const text = await readNote(last);
-            if (!cancelled) showNote(last, text);
-          } catch {
-            // The last note was renamed, deleted, or moved; fall back below.
-          }
-        }
-
-        if (!cancelled && !noteRef.current) {
-          showNote(info.welcome, await readNote(info.welcome));
-        }
-        if (!cancelled) await refreshNotes();
+        await refreshNotes();
+        if (cancelled) return;
+        // Open today's journal, creating it with the default preset when missing.
+        await openJournalDay(today);
       } catch (reason) {
         if (!cancelled) setNotice(errorMessage(reason));
       } finally {
@@ -294,7 +314,7 @@ export default function App() {
     return () => {
       cancelled = true;
     };
-  }, [desktop, refreshNotes, showNote]);
+  }, [desktop, refreshNotes, openJournalDay, today]);
 
   useEffect(() => {
     if (!desktop) return;
@@ -363,6 +383,10 @@ export default function App() {
       if (key === "s" && !event.shiftKey) {
         event.preventDefault();
         void saveNow();
+      } else if (key === "p") {
+        event.preventDefault();
+        setSettingsOpen(false);
+        setPaletteOpen((value) => !value);
       } else if (key === "f" && event.shiftKey) {
         event.preventDefault();
         setFocusMode((value) => !value);
@@ -370,7 +394,7 @@ export default function App() {
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [saveNow]);
+  }, [saveNow, setPaletteOpen, setSettingsOpen]);
 
   useEffect(() => () => clearTimeout(debounce.current), []);
 
@@ -393,7 +417,7 @@ export default function App() {
   return (
     <main className="flex h-screen min-h-0 flex-col overflow-hidden bg-[var(--canvas)] text-[var(--text-primary)]">
       <header
-        data-tauri-drag-region
+        {...(nativeTitlebar ? {} : { "data-tauri-drag-region": "" })}
         className="flex h-11 shrink-0 items-center justify-between gap-6 border-b border-[var(--border)] pl-20 pr-1.5"
       >
         <div className="pointer-events-none flex min-w-0 items-center gap-2">
@@ -403,8 +427,18 @@ export default function App() {
             <>
               <span className="text-[var(--text-muted)]">/</span>
               <span className="truncate text-sm text-[var(--text-muted)]">
-                {basename(note.path)}
+                {fullDateLabel(noteDate)}
               </span>
+              {noteDate !== today && (
+                <button
+                  type="button"
+                  aria-label="Open today's journal"
+                  onClick={() => void openJournalDay(today)}
+                  className="ml-2 rounded-md px-2 py-0.5 text-[10px] font-medium text-[var(--text-muted)] hover:bg-black/5 dark:hover:bg-white/10"
+                >
+                  Today
+                </button>
+              )}
             </>
           )}
         </div>
@@ -424,8 +458,19 @@ export default function App() {
           >
             {theme === "dark" ? <Sun size={15} /> : <Moon size={15} />}
           </button>
+          <button
+            type="button"
+            aria-label="Journal settings"
+            onClick={() => {
+              setPaletteOpen(false);
+              setSettingsOpen((value) => !value);
+            }}
+            className="rounded-md p-2 text-[var(--text-muted)] hover:bg-black/5 hover:text-[var(--text-primary)] dark:hover:bg-white/10"
+          >
+            <Gear size={15} />
+          </button>
 
-          {appWindow && (
+          {appWindow && !nativeTitlebar && (
             <div className="ml-1 flex items-center" data-tauri-drag-region="false">
               <button
                 type="button"
@@ -467,15 +512,11 @@ export default function App() {
 
       <div className="flex min-h-0 flex-1">
         {desktop && !focusMode && (
-          <Sidebar
-            root={root}
-            entries={entries}
-            activePath={note?.path}
-            onOpen={(path) => void openNote(path)}
-            onCreate={createEntry}
-            onRename={renameNote}
-            onDelete={deleteNote}
-            onRefresh={() => void refreshNotes()}
+          <Calendar
+            selectedDate={noteDate}
+            today={today}
+            onSelect={openJournalDay}
+            existingDays={journalDaysSet}
           />
         )}
 
@@ -513,6 +554,31 @@ export default function App() {
           )}
         </section>
       </div>
+
+      {paletteOpen && (
+        <CommandPalette
+          days={journalDays}
+          onSelect={(path) => {
+            const date = basename(path).replace(/\.md$/i, "");
+            void openJournalDay(date);
+            setPaletteOpen(false);
+          }}
+          onClose={() => setPaletteOpen(false)}
+          today={today}
+        />
+      )}
+
+      {settingsOpen && (
+        <Settings
+          open={settingsOpen}
+          onClose={() => setSettingsOpen(false)}
+          defaultPresetId={defaultPresetId}
+          onDefaultPresetChange={setLocalDefaultPresetId}
+          nativeTitlebar={nativeTitlebar}
+          onNativeTitlebarChange={setNativeTitlebar}
+        />
+      )}
+
     </main>
   );
 }

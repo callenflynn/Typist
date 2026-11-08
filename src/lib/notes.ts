@@ -34,3 +34,8 @@ export const renameEntry = (path: string, name: string) =>
   invoke<string>("rename_entry", { path, name });
 
 export const deleteEntry = (path: string) => invoke<void>("delete_entry", { path });
+
+/** Ensures today's journal exists at `<root>/<date>.md`, creating it with an
+ * optional template when missing, and returns its path. */
+export const openDailyJournal = (date: string, template?: string | null) =>
+  invoke<string>("open_daily_journal", { date, template: template ?? null });

@@ -5,6 +5,27 @@ Typist is a minimal, local-first Markdown editor designed for distraction-free w
 Open it, write, and it saves. Notes are plain `.md` files in `~/Documents/Typist`.
 There is no account, database, or vault to configure.
 
+## Installation
+
+Typist is distributed as a git clone. The installer sets up git, Bun, and Rust,
+builds the app, and (Linux only) creates a `.desktop` launcher. Every launch
+checks git: if your clone is behind the remote it pulls, rebuilds, and starts
+the latest build.
+
+### Linux / macOS (one line)
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/callenflynn/Typist/main/install.sh | sh
+```
+
+### Windows (PowerShell, one line)
+
+```powershell
+iwr https://raw.githubusercontent.com/callenflynn/Typist/main/install.bat -useb | iex
+```
+
+After installing, launch Typist from your app menu or run `typist` in your terminal.
+
 ## What it does
 
 - Creates `~/Documents/Typist` and a short `Welcome.md` on first launch.

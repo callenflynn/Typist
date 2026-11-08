@@ -1,64 +1,97 @@
-name: Release
+name: Build & Release
 
 on:
   push:
-    branches: [main]
+    tags:
+      - 'v*'
+  workflow_dispatch:
 
 permissions:
   contents: write
 
-env:
-  CARGO_TERM_COLOR: always
-
 jobs:
-  release:
+  build:
     strategy:
       fail-fast: false
       matrix:
         include:
-          - os: ubuntu-22.04
+          - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
-          - os: macos-latest
-            target: aarch64-apple-darwin
+            asset_name: typist-linux
           - os: windows-latest
             target: x86_64-pc-windows-msvc
+            asset_name: typist-windows.exe
+          - os: macos-latest
+            target: x86_64-apple-darwin
+            asset_name: typist-macos
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: oven-sh/setup-bun@v2
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
-      - run: bun install --frozen-lockfile
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: ${{ matrix.target }}
-      - name: Install Linux dependencies
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install Linux system dependencies
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
-      - name: Calculate release version
-        id: release
-        shell: bash
         run: |
-          short_sha="$(printf '%s' "$GITHUB_SHA" | cut -c1-7)"
-          version="0.1.1-${GITHUB_RUN_NUMBER}-${short_sha}"
-          artifact_suffix="${GITHUB_RUN_NUMBER}-${short_sha}"
-          echo "short_sha=${short_sha}" >> "$GITHUB_OUTPUT"
-          echo "version=${version}" >> "$GITHUB_OUTPUT"
-          echo "artifact_suffix=${artifact_suffix}" >> "$GITHUB_OUTPUT"
-      - uses: tauri-apps/tauri-action@v0
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.0-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev
+
+      - name: Install frontend dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Build frontend
+        run: bun run build
+
+      - name: Build Tauri binary
+        run: cargo build --release --target ${{ matrix.target }}
+
+      - name: Rename binary for asset
+        run: |
+          case "${{ runner.os }}" in
+            Linux) cp src-tauri/target/${{ matrix.target }}/release/typist typist-linux ;;
+            Windows) cp src-tauri/target/${{ matrix.target }}/release/typist.exe typist-windows.exe ;;
+            macOS) cp src-tauri/target/${{ matrix.target }}/release/typist typist-macos ;;
+          esac
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.asset_name }}
+          path: ${{ matrix.asset_name }}
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Download all build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: releases
+
+      - name: Create GitHub Release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          VITE_COMMIT_SHA: ${{ steps.release.outputs.short_sha }}
-          VITE_APP_VERSION: ${{ steps.release.outputs.version }}
-        with:
-          tagName: v${{ steps.release.outputs.version }}
-          releaseName: Typist v${{ steps.release.outputs.version }}
-          releaseBody: Automated release for commit ${{ steps.release.outputs.short_sha }}. Artifact filenames use the suffix ${{ steps.release.outputs.artifact_suffix }}.
-          assetNamePattern: Typist-${{ steps.release.outputs.artifact_suffix }}-[platform]-[arch][ext]
-          includeUpdaterJson: false
-          releaseDraft: false
-          prerelease: false
-          args: --target ${{ matrix.target }}
+        run: |
+          TAG="${GITHUB_REF#refs/tags/}"
+          RELEASE_NOTES="Typist ${TAG}
+          
+          Download the asset for your platform:
+          - typist-linux — Linux (x86_64)
+          - typist-windows.exe — Windows (x86_64)
+          - typist-macos — macOS (x86_64)"
+          
+          gh release create "${TAG}" \
+            --title "Typist ${TAG}" \
+            --notes "${RELEASE_NOTES}" \
+            --latest \
+            releases/*

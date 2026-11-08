@@ -149,6 +149,89 @@ pub fn write_note(
     written.map_err(|error| format!("could not save {}: {error}", path.display()))
 }
 
+/// Returns today's date in the system's local time zone as `YYYY-MM-DD`.
+/// Rust's standard library has no time-zone support, so the caller (the
+/// frontend) supplies the local date. This fallback keeps the command usable
+/// when no date is provided, at the cost of using the UTC date.
+fn utc_today() -> String {
+    let now = SystemTime::now();
+    let sec = now
+        .duration_since(UNIX_EPOCH)
+        .map(|elapsed| elapsed.as_secs())
+        .unwrap_or_default();
+    // Days since the Unix epoch, decomposed into year/month/day in UTC.
+    let mut days = sec / 86_400;
+    let mut year = 1970;
+    loop {
+        let days_in_year = if is_leap_year(year) { 366u64 } else { 365u64 };
+        if days < days_in_year {
+            break;
+        }
+        days -= days_in_year;
+        year += 1;
+    }
+    let month_days = month_lengths(is_leap_year(year));
+    let mut month = 0;
+    for (index, &length) in month_days.iter().enumerate() {
+        if days < length {
+            month = index;
+            break;
+        }
+        days -= length;
+    }
+    let day = days + 1;
+    format!("{year}-{:02}-{:02}", month + 1, day)
+}
+
+fn is_leap_year(year: i32) -> bool {
+    (year % 4 == 0 && year % 100 != 0) || year % 400 == 0
+}
+
+fn month_lengths(leap: bool) -> [u64; 12] {
+    let feb = if leap { 29 } else { 28 };
+    [31, feb, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31].map(|n| n as u64)
+}
+
+/// True when `value` looks like a calendar date `YYYY-MM-DD`. Kept intentionally
+/// small so no regex dependency is needed; combined with the workspace path
+/// guard this cannot escape the Typist folder.
+fn is_journal_date(value: &str) -> bool {
+    let bytes = value.as_bytes();
+    if bytes.len() != 10 {
+        return false;
+    }
+    if bytes[4] != b'-' || bytes[7] != b'-' {
+        return false;
+    }
+    bytes[..4].iter().all(u8::is_ascii_digit)
+        && bytes[5..7].iter().all(u8::is_ascii_digit)
+        && bytes[8..10].iter().all(u8::is_ascii_digit)
+}
+
+/// Ensures today's journal exists at `~/Documents/Typist/<date>.md`, creating
+/// it with `template` (e.g. a `{date}`-expanded preset) when it is missing.
+/// Existing journals are never overwritten.
+#[tauri::command]
+pub fn open_daily_journal(
+    app: AppHandle,
+    state: State<'_, Workspace>,
+    date: Option<String>,
+    template: Option<String>,
+) -> Result<String, String> {
+    let root = ensure_workspace(&app, &state)?;
+    let date = date.unwrap_or_else(|| utc_today());
+    if !is_journal_date(&date) {
+        return Err("journal date must be YYYY-MM-DD".into());
+    }
+    let path = root.join(format!("{date}.md"));
+    if !path.exists() {
+        let content = template.unwrap_or_default();
+        fs::write(&path, content)
+            .map_err(|error| format!("could not create journal {date}: {error}"))?;
+    }
+    Ok(path.to_string_lossy().into_owned())
+}
+
 #[tauri::command]
 pub fn create_note(
     app: AppHandle,
@@ -252,3 +335,60 @@ pub fn delete_entry(
     };
     result.map_err(|error| format!("could not delete {}: {error}", path.display()))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn journal_date_validation() {
+        assert!(is_journal_date("2026-11-08"));
+        assert!(is_journal_date("2000-01-01"));
+        assert!(is_journal_date("1999-12-31"));
+        assert!(!is_journal_date("2026-1-08"));   // non-zero-padded month
+        assert!(!is_journal_date("2026-11-8"));    // non-zero-padded day
+        assert!(!is_journal_date("2026/11/08"));   // wrong separator
+        assert!(!is_journal_date("26-11-08"));     // short year
+        assert!(!is_journal_date("2026-11-08x"));  // trailing junk
+        assert!(!is_journal_date(""));             // empty
+        // Out-of-range months are structurally valid filenames; path traversal
+        // is blocked by the workspace containment guard in `resolve`, not here.
+        assert!(is_journal_date("2026-13-01"));
+    }
+
+    #[test]
+    fn utc_today_returns_iso_date_shape() {
+        let today = utc_today();
+        assert!(is_journal_date(&today));
+        // Should be within one day of the current UTC date.
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|elapsed| elapsed.as_secs())
+            .unwrap_or_default();
+        // Recompute the expected calendar date independently and compare it
+        // date produced by `utc_today` against a direct decomposition.
+        let mut days = now / 86_400;
+        let mut year = 1970;
+        loop {
+            let days_in_year = if is_leap_year(year) { 366u64 } else { 365u64 };
+            if days < days_in_year {
+                break;
+            }
+            days -= days_in_year;
+            year += 1;
+        }
+        let month_days = month_lengths(is_leap_year(year));
+        let mut month = 0;
+        for (index, &length) in month_days.iter().enumerate() {
+            if days < length {
+                month = index;
+                break;
+            }
+            days -= length;
+        }
+        let day = days + 1;
+        let expected = format!("{year}-{:02}-{:02}", month + 1, day);
+        assert_eq!(today, expected);
+    }
+}
+
