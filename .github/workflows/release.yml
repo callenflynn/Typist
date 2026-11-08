@@ -93,6 +93,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           path: releases
+          merge-multiple: true
 
       - name: Create GitHub Release
         env:
