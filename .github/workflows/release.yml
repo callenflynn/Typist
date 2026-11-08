@@ -37,11 +37,23 @@ jobs:
       - name: Setup Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
+      - name: Add Rust targets
+        run: |
+          rustup target add x86_64-unknown-linux-gnu
+          rustup target add x86_64-pc-windows-msvc
+          rustup target add x86_64-apple-darwin
+
       - name: Install Linux system dependencies
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.0-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev
+          # webkit2gtk dev package name varies by Ubuntu version (4.0 vs 4.1)
+          if apt-cache search '^libwebkit2gtk-4\.1-dev$' | grep -q libwebkit2gtk-4.1-dev; then
+            WEBKIT_PKG=libwebkit2gtk-4.1-dev
+          else
+            WEBKIT_PKG=libwebkit2gtk-4.0-dev
+          fi
+          sudo apt-get install -y "$WEBKIT_PKG" libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev
 
       - name: Install frontend dependencies
         run: bun install --frozen-lockfile
@@ -50,16 +62,19 @@ jobs:
         run: bun run build
 
       - name: Build Tauri binary
-        run: cargo build --release --target ${{ matrix.target }}
+        run: |
+          cargo build --release --target ${{ matrix.target }} --manifest-path src-tauri/Cargo.toml
 
       - name: Rename binary for asset
         shell: bash
         run: |
-          case "${{ runner.os }}" in
-            Linux) cp src-tauri/target/${{ matrix.target }}/release/typist typist-linux ;;
-            Windows) cp src-tauri/target/${{ matrix.target }}/release/typist.exe typist-windows.exe ;;
-            macOS) cp src-tauri/target/${{ matrix.target }}/release/typist typist-macos ;;
-          esac
+          if [ "${{ runner.os }}" = "Linux" ]; then
+            cp src-tauri/target/${{ matrix.target }}/release/typist typist-linux
+          elif [ "${{ runner.os }}" = "Windows" ]; then
+            cp src-tauri/target/${{ matrix.target }}/release/typist.exe typist-windows.exe
+          elif [ "${{ runner.os }}" = "macOS" ]; then
+            cp src-tauri/target/${{ matrix.target }}/release/typist typist-macos
+          fi
 
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
