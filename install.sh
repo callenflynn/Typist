@@ -1,9 +1,12 @@
 #!/usr/bin/env sh
-# typist-install.sh — Install Typist from GitHub releases (Linux + macOS)
+# typist-install.sh — Install Typist from GitHub releases (Linux + macOS only)
 #
-# Downloads a prebuilt binary from the latest GitHub release — no compilation needed.
-# The launcher checks for updates on every run: if a newer release exists it
-# downloads and replaces the binary automatically.
+# This script installs Typist on Linux and macOS by downloading a prebuilt
+# binary from the latest GitHub release. The Windows installer is
+# install.bat (run via PowerShell one-liner).
+#
+# On every launch the launcher checks GitHub for a new release and
+# auto-updates the binary if one is available.
 #
 # Usage:
 #   curl -fsSL https://raw.githubusercontent.com/callenflynn/Typist/main/install.sh | sh
@@ -13,60 +16,59 @@ REPO="callenflynn/Typist"
 INSTALL_DIR="$HOME/.local/share/typist"
 BIN_DIR="$HOME/.local/bin"
 APP_NAME="typist"
-OS=$(uname -s)
-ARCH=$(uname -m)
 
-echo "==> Typist installer"
-echo "    OS: $OS  Arch: $ARCH"
+echo "==> Typist installer (Linux/macOS)"
+echo "    REPO: $REPO"
 echo "    Install dir: $INSTALL_DIR"
 
 # ---------------------------------------------------------------------------
-# 1. Detect package manager and install git + runtime dependencies
-#    (Rust/Cargo NOT needed — we download a prebuilt binary)
+# 1. Install git (via apt/dnf/pacman).  On macOS we use Homebrew.
 # ---------------------------------------------------------------------------
-install_deps_linux() {
+install_git_linux() {
   if command -v apt-get >/dev/null 2>&1; then
-    sudo apt-get update
-    sudo apt-get install -y git curl libwebkit2gtk-4.0-dev libgtk-3-dev
+    sudo apt-get update -qq && sudo apt-get install -y -qq git curl
   elif command -v dnf >/dev/null 2>&1; then
-    sudo dnf install -y git curl webkit2gtk3-devel gtk3-devel
+    sudo dnf install -y -q git curl
   elif command -v pacman >/dev/null 2>&1; then
-    sudo pacman -Sy --needed --noconfirm git curl webkit2gtk gtk3
+    sudo pacman -Sy --needed --noconfirm git curl
   else
     echo "Could not detect a supported package manager (apt/dnf/pacman)."
-    echo "Please install git, curl, and WebKitGTK/GTK3 manually."
+    echo "Please install git and curl manually, then re-run."
     exit 1
   fi
 }
 
-install_deps_macos() {
+install_git_macos() {
   if ! command -v brew >/dev/null 2>&1; then
     echo "==> Homebrew not found. Installing Homebrew..."
     /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
   fi
-  brew install git
+  brew install git --quiet 2>/dev/null || true
 }
 
-case "$OS" in
-  Linux)
-    install_deps_linux
-    ;;
-  Darwin)
-    install_deps_macos
-    ;;
-  *)
-    echo "Unsupported OS: $OS"
-    exit 1
-    ;;
-esac
+# ---------------------------------------------------------------------------
+# 2. Detect OS and install dependencies
+# ---------------------------------------------------------------------------
+OS=$(uname -s)
+CASE=$OS
+if [ "$OS" = "Darwin" ]; then
+  install_git_macos
+elif [ "$OS" = "Linux" ]; then
+  install_git_linux
+else
+  echo "Unsupported OS: $OS. This script supports Linux and macOS only."
+  echo "Windows users: run the PowerShell one-liner from the README."
+  exit 1
+fi
 
 if ! command -v git >/dev/null 2>&1; then
   echo "git is required but could not be installed automatically."
   exit 1
 fi
+echo "    git ready: $(git --version)"
 
 # ---------------------------------------------------------------------------
-# 2. Install bun
+# 3. Install bun
 # ---------------------------------------------------------------------------
 if ! command -v bun >/dev/null 2>&1; then
   echo "==> Installing bun..."
@@ -74,14 +76,7 @@ if ! command -v bun >/dev/null 2>&1; then
 fi
 export BUN_INSTALL="${BUN_INSTALL:-$HOME/.bun}"
 export PATH="$BUN_INSTALL/bin:$PATH"
-
-# ---------------------------------------------------------------------------
-# 3. Determine platform asset name
-# ---------------------------------------------------------------------------
-case "$OS" in
-  Linux)  PLATFORM="linux" ;;
-  Darwin) PLATFORM="macos" ;;
-esac
+echo "    bun ready: $(bun --version)"
 
 # ---------------------------------------------------------------------------
 # 4. Fetch latest release tag from GitHub API
@@ -102,17 +97,18 @@ echo "    Latest release: $LATEST_TAG"
 # ---------------------------------------------------------------------------
 mkdir -p "$INSTALL_DIR" "$BIN_DIR"
 
-ASSET_URL="https://github.com/${REPO}/releases/download/${LATEST_TAG}/typist-${PLATFORM}"
-BINARY_PATH="$INSTALL_DIR/$APP_NAME"
+# Determine platform asset name
+ASSET_NAME="typist-$(uname -s | tr '[:upper:]' '[:lower:]')"
+ASSET_URL="https://github.com/${REPO}/releases/download/${LATEST_TAG}/${ASSET_NAME}"
 
-echo "==> Downloading typist-$PLATFORM..."
-curl -fsSL -o "$BINARY_PATH" "$ASSET_URL"
-chmod +x "$BINARY_PATH"
+echo "==> Downloading $ASSET_NAME..."
+curl -fsSL -o "$INSTALL_DIR/$APP_NAME" "$ASSET_URL"
+chmod +x "$INSTALL_DIR/$APP_NAME"
 
 # ---------------------------------------------------------------------------
 # 6. Symlink into PATH
 # ---------------------------------------------------------------------------
-ln -sf "$BINARY_PATH" "$BIN_DIR/$APP_NAME"
+ln -sf "$INSTALL_DIR/$APP_NAME" "$BIN_DIR/$APP_NAME"
 
 # ---------------------------------------------------------------------------
 # 7. Write the update-checking launcher
@@ -126,11 +122,10 @@ REPO="${REPO}"
 INSTALL_DIR="${INSTALL_DIR}"
 BIN_DIR="${BIN_DIR}"
 APP_NAME="${APP_NAME}"
-PLATFORM="${PLATFORM}"
 BINARY="\$INSTALL_DIR/\$APP_NAME"
 CURRENT_VERSION_FILE="\$INSTALL_DIR/.version"
 
-# Read current version (if any)
+# Read current version
 CURRENT_VERSION=""
 if [ -f "\$CURRENT_VERSION_FILE" ]; then
   CURRENT_VERSION=\$(cat "\$CURRENT_VERSION_FILE" 2>/dev/null || true)
@@ -143,7 +138,7 @@ LATEST_TAG=\$(curl -fsS "https://api.github.com/repos/\$REPO/releases/latest" 2>
 # If we have a newer release, download and replace
 if [ -n "\$LATEST_TAG" ] && [ "\$CURRENT_VERSION" != "\$LATEST_TAG" ]; then
   echo "==> Typist update available: \$LATEST_TAG (current: \$CURRENT_VERSION)"
-  ASSET_URL="https://github.com/\$REPO/releases/download/\$LATEST_TAG/typist-\$PLATFORM"
+  ASSET_URL="https://github.com/\$REPO/releases/download/\$LATEST_TAG/typist-\$(uname -s | tr '[:upper:]' '[:lower:]')"
   TMP_BIN="\$INSTALL_DIR/.typist-new"
   curl -fsSL -o "\$TMP_BIN" "\$ASSET_URL"
   chmod +x "\$TMP_BIN"
@@ -184,14 +179,8 @@ DESKTOP_EOF
 fi
 
 # ---------------------------------------------------------------------------
-# 10. macOS note
+# 10. Finish
 # ---------------------------------------------------------------------------
-if [ "$OS" = "Darwin" ]; then
-  echo "==> Done! Typist is installed at $BIN_DIR/$APP_NAME"
-  echo "    Run: typist"
-  echo "    Each launch checks GitHub and auto-updates if a new release exists."
-fi
-
 echo
 echo "==> Install complete."
 echo "    Launch Typist from your app menu, or run: typist"
